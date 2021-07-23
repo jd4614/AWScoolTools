@@ -13,22 +13,19 @@ Resources:
       Type: AWS::EC2::VPC
       Properties:
         CidrBlock: 10.1.0.0/16
-        EnableDnsSupport: true
-        
+        EnableDnsSupport: true        
         Tags:
           - Key: Name
             Value: !Sub ${AWS::StackName}-VPC
 
     demoStackIGW:
       Type: AWS::EC2::InternetGateway
-      Properties:
-        
+      Properties:     
         Tags:
           - Key: Name
             Value: !Sub ${AWS::StackName}-IGW
-            
-    
-    AttachGateway:
+             
+    attachGateway:
       Type: AWS::EC2::VPCGatewayAttachment
       Properties:
         VpcId: !Ref demoStackVPC
@@ -89,13 +86,13 @@ Resources:
         SubnetId: !Ref demoStackPubSubnetA
         RouteTableId: !Ref demoStackPubRouteTable
     
-      routeTableAssocPubB:
+    routeTableAssocPubB:
       Type: AWS::EC2::SubnetRouteTableAssociation
       Properties:
         SubnetId: !Ref demoStackPubSubnetB
         RouteTableId: !Ref demoStackPubRouteTable
 
-    PublicRoute1:
+    publicRoute1:
       Type: AWS::EC2::Route
       Properties:
         RouteTableId: !Ref demoStackPubRouteTable
@@ -108,8 +105,7 @@ Resources:
             VpcId: !Ref demoStackVPC
             Tags:
               - Key: Name
-                Value: !Sub ${AWS::StackName}-PrivateRouteTable      
-    
+                Value: !Sub ${AWS::StackName}-PrivateRouteTable       
     NAT:
       Type: AWS::EC2::NatGateway
       Properties:
@@ -129,7 +125,7 @@ Resources:
       Properties:
           Domain: !Ref demoStackVPC
     
-    Route:
+    route:
       Type: AWS::EC2::Route
       Properties:
           RouteTableId:
