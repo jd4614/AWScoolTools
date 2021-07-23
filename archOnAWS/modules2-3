@@ -1,0 +1,154 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Stack to deploy infrastructure useful for archOnAWS modules 2 and 3 demonstrations.  This stack is basic Well Architected Framework network.
+Metadata: 
+
+Parameters: 
+
+Mappings: 
+
+Conditions: 
+
+Resources: 
+    demoStackVPC:
+      Type: AWS::EC2::VPC
+      Properties:
+        CidrBlock: 10.1.0.0/16
+        EnableDnsSupport: true
+        
+        Tags:
+          - Key: Name
+            Value: !Sub ${AWS::StackName}-VPC
+
+    demoStackIGW:
+      Type: AWS::EC2::InternetGateway
+      Properties:
+        
+        Tags:
+          - Key: Name
+            Value: !Sub ${AWS::StackName}-IGW
+            
+    
+    AttachGateway:
+      Type: AWS::EC2::VPCGatewayAttachment
+      Properties:
+        VpcId: !Ref demoStackVPC
+        InternetGatewayId: !Ref demoStackIGW
+        
+    
+    demoStackPubSubnetA:
+      Type: AWS::EC2::Subnet
+      Properties:
+        AvailabilityZone: !Select [ 0, !GetAZs ]
+        VpcId: !Ref demoStackVPC
+        CidrBlock: 10.1.1.0/24
+        Tags:
+          - Key: Name
+            Value: !Sub ${AWS::StackName}-Public-A
+
+    demoStackPubSubnetB:
+      Type: AWS::EC2::Subnet
+      Properties:
+        AvailabilityZone: !Select [ 1, !GetAZs ]
+        VpcId: !Ref demoStackVPC
+        CidrBlock: 10.1.2.0/24
+        Tags:
+          - Key: Name
+            Value: !Sub ${AWS::StackName}-Public-B
+
+    demoStackPrivSubnetA:
+      Type: AWS::EC2::Subnet
+      Properties:
+        AvailabilityZone: !Select [ 0, !GetAZs ]
+        VpcId: !Ref demoStackVPC
+        CidrBlock: 10.1.10.0/23
+        Tags:
+          - Key: Name
+            Value: !Sub ${AWS::StackName}-Priv-A
+
+    demoStackPrivSubnetB:
+      Type: AWS::EC2::Subnet
+      Properties:
+        AvailabilityZone: !Select [ 1, !GetAZs ]
+        VpcId: !Ref demoStackVPC
+        CidrBlock: 10.1.20.0/23
+        Tags:
+          - Key: Name
+            Value: !Sub ${AWS::StackName}-Priv-B  
+    
+    demoStackPubRouteTable:
+      Type: AWS::EC2::RouteTable
+      Properties:
+        VpcId: !Ref demoStackVPC
+        Tags:
+          - Key: Name
+            Value: !Sub ${AWS::StackName}-PubRouteTable 
+
+    routeTableAssocPubA:
+      Type: AWS::EC2::SubnetRouteTableAssociation
+      Properties:
+        SubnetId: !Ref demoStackPubSubnetA
+        RouteTableId: !Ref demoStackPubRouteTable
+    
+      routeTableAssocPubB:
+      Type: AWS::EC2::SubnetRouteTableAssociation
+      Properties:
+        SubnetId: !Ref demoStackPubSubnetB
+        RouteTableId: !Ref demoStackPubRouteTable
+
+    PublicRoute1:
+      Type: AWS::EC2::Route
+      Properties:
+        RouteTableId: !Ref demoStackPubRouteTable
+        DestinationCidrBlock: 0.0.0.0/0
+        GatewayId: !Ref demoStackIGW
+    
+    demoStackPrivateRouteTable:
+          Type: AWS::EC2::RouteTable
+          Properties:
+            VpcId: !Ref demoStackVPC
+            Tags:
+              - Key: Name
+                Value: !Sub ${AWS::StackName}-PrivateRouteTable      
+    
+    NAT:
+      Type: AWS::EC2::NatGateway
+      Properties:
+          AllocationId:
+            Fn::GetAtt:
+            - EIPa
+            - AllocationId
+          SubnetId:
+            Ref: demoStackPubSubnetA
+          Tags:
+          - Key: Name
+            Value: !Sub ${AWS::StackName}-NAT
+    
+    EIPa:
+      DependsOn: AttachGateway
+      Type: AWS::EC2::EIP
+      Properties:
+          Domain: !Ref demoStackVPC
+    
+    Route:
+      Type: AWS::EC2::Route
+      Properties:
+          RouteTableId:
+            Ref: demoStackPrivateRouteTable
+          DestinationCidrBlock: 0.0.0.0/0
+          NatGatewayId:
+            Ref: NAT 
+
+    routeTableAssocPrivateA:
+      Type: AWS::EC2::SubnetRouteTableAssociation
+      Properties:
+        SubnetId: !Ref demoStackPrivateSubnetA
+        RouteTableId: !Ref demoStackPrivateRouteTable
+
+    launchTemplateName:
+      Type: AWS::EC2::LaunchTemplate
+      Properties:
+        LaunchTemplateName: demoEC2
+        LaunchTemplateData: 
+          KeyName: classDemos
+          
+Outputs:
