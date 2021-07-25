@@ -1,0 +1,287 @@
+AWSTemplateFormatVersion: 2010-09-09
+
+Resources:
+  VPC:
+    Type: 'AWS::EC2::VPC'
+    Properties:
+      CidrBlock: 10.1.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-VPC'
+ 
+  IGW:
+    Type: 'AWS::EC2::InternetGateway'
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-IGW'
+  
+  attachGateway:
+    Type: 'AWS::EC2::VPCGatewayAttachment'
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref IGW
+  
+  publicSubnetA:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      AvailabilityZone: !Select 
+        - 0
+        - !GetAZs ''
+      VpcId: !Ref VPC
+      CidrBlock: 10.1.1.0/24
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-Public-A'
+  
+  publicSubnetB:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      AvailabilityZone: !Select 
+        - 1
+        - !GetAZs ''
+      VpcId: !Ref VPC
+      CidrBlock: 10.1.2.0/24
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-Public-B'
+  
+  privateSubnetA:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      AvailabilityZone: !Select 
+        - 0
+        - !GetAZs ''
+      VpcId: !Ref VPC
+      CidrBlock: 10.1.10.0/23
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-Priv-A'
+  
+  privateSubnetB:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      AvailabilityZone: !Select 
+        - 1
+        - !GetAZs ''
+      VpcId: !Ref VPC
+      CidrBlock: 10.1.20.0/23
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-Priv-B'
+  
+  publicRouteTable:
+    Type: 'AWS::EC2::RouteTable'
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-PubRouteTable'
+  
+  routeTableAssocPubA:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    Properties:
+      SubnetId: !Ref publicSubnetA
+      RouteTableId: !Ref publicRouteTable
+  
+  routeTableAssocPubB:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    Properties:
+      SubnetId: !Ref publicSubnetB
+      RouteTableId: !Ref publicRouteTable
+  
+  publicRoute1:
+    Type: 'AWS::EC2::Route'
+    Properties:
+      RouteTableId: !Ref publicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref IGW
+  
+  privateRouteTable:
+    Type: 'AWS::EC2::RouteTable'
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-PrivateRouteTable'
+ 
+  NAT:
+    Type: 'AWS::EC2::NatGateway'
+    Properties:
+      AllocationId: !GetAtt 
+        - EIPa
+        - AllocationId
+      SubnetId: !Ref publicSubnetA
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-NAT'
+  
+  EIPa:
+    DependsOn: attachGateway
+    Type: 'AWS::EC2::EIP'
+    Properties:
+      Domain: !Ref VPC
+  
+  route:
+    Type: 'AWS::EC2::Route'
+    Properties:
+      RouteTableId: !Ref privateRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NAT
+  
+  routeTableAssocPrivateA:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    Properties:
+      SubnetId: !Ref privateSubnetA
+      RouteTableId: !Ref privateRouteTable
+  
+# EC2 Security Group Allowing Port 22 and 80 from anywhere
+  EC2SecurityGroup:
+      Type: AWS::EC2::SecurityGroup
+      Properties:
+          GroupDescription: 'SSH and Port 80'
+          VpcId:
+            Ref: VPC
+          SecurityGroupIngress:
+              - IpProtocol: tcp
+                FromPort: 22
+                ToPort: 22
+                CidrIp: 0.0.0.0/0
+              - IpProtocol: tcp
+                FromPort: 80
+                ToPort: 80
+                SourceSecurityGroupId:
+                    Ref: ELBSecurityGroup
+
+  # ELB Security Group allowing Port 80 from anywhere
+  ELBSecurityGroup:
+      Type: AWS::EC2::SecurityGroup
+      Properties:
+          GroupDescription: 'SSH and Port 80'
+          VpcId:
+            Ref: VPC
+          SecurityGroupIngress:
+              - IpProtocol: tcp
+                FromPort: 80
+                ToPort: 80
+                CidrIp: 0.0.0.0/0
+                
+  targetGroupMember0:
+    Type: 'AWS::EC2::Instance'
+    Properties:
+      AvailabilityZone: !Select 
+        - 0
+        - !GetAZs ''
+      KeyName: classDemos
+      ImageId: >-
+        resolve:ssm:/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2
+      InstanceType: t2.micro
+      SecurityGroupIds:
+        - !GetAtt EC2SecurityGroup.GroupId
+      SubnetId: !Ref publicSubnetA
+      UserData:
+        Fn::Base64:
+          !Sub |
+            #!/bin/bash
+            yum update -y
+            amazon-linux-extras install -y lamp-mariadb10.2-php7.2 php7.2
+            yum install -y httpd mariadb-server
+            cat <<EOF > /var/www/html/index.html
+            <html>
+            <body>
+            <p>Hostname is:           $(curl 169.254.169.254/latest/meta-data/public-hostname)</p>
+            <p>IP Address is:         $(curl 169.254.169.254/latest/meta-data/public-ipv4)</p>
+            <p>Availability Zone is:  $(curl 169.254.169.254/latest/meta-data/placement/availability-zone)</p>
+            </body>
+            </html>
+            EOF
+            systemctl start httpd
+            systemctl enable httpd
+            usermod -a -G apache ec2-user
+            chown -R ec2-user:apache /var/www
+            chmod 2775 /var/www
+            find /var/www -type d -exec chmod 2775 {} \;
+            find /var/www -type f -exec chmod 0664 {} \;
+            echo "<?php phpinfo(); ?>" > /var/www/html/phpinfo.php 
+            yum install -y php     
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-targetGroupMember0'
+  
+  targetGroupMember1:
+    Type: 'AWS::EC2::Instance'
+    Properties:
+      AvailabilityZone: !Select 
+        - 1
+        - !GetAZs ''
+      KeyName: classDemos
+      ImageId: >-
+        resolve:ssm:/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2
+      InstanceType: t2.micro
+      SecurityGroupIds:
+        - !GetAtt EC2SecurityGroup.GroupId
+      SubnetId: !Ref publicSubnetB
+      UserData:
+        Fn::Base64:
+          !Sub |
+            #!/bin/bash
+            yum update -y
+            amazon-linux-extras install -y lamp-mariadb10.2-php7.2 php7.2
+            yum install -y httpd mariadb-server
+            cat <<EOF > /var/www/html/index.html
+            <html>
+            <body>
+            <p>Hostname is:           $(curl 169.254.169.254/latest/meta-data/public-hostname)</p>
+            <p>IP Address is:         $(curl 169.254.169.254/latest/meta-data/public-ipv4)</p>
+            <p>Availability Zone is:  $(curl 169.254.169.254/latest/meta-data/placement/availability-zone)</p>
+            </body>
+            </html>
+            EOF
+            systemctl start httpd
+            systemctl enable httpd
+            usermod -a -G apache ec2-user
+            chown -R ec2-user:apache /var/www
+            chmod 2775 /var/www
+            find /var/www -type d -exec chmod 2775 {} \;
+            find /var/www -type f -exec chmod 0664 {} \;
+            echo "<?php phpinfo(); ?>" > /var/www/html/phpinfo.php 
+            yum install -y php
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-targetGroupMember1'
+
+  # Target Group
+  EC2TargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      HealthCheckIntervalSeconds: 30
+      HealthCheckProtocol: HTTP
+      HealthCheckTimeoutSeconds: 15
+      HealthyThresholdCount: 5
+      Matcher:
+        HttpCode: '200'
+      Name: EC2TargetGroup
+      Port: 80
+      Protocol: HTTP
+      TargetGroupAttributes:
+      - Key: deregistration_delay.timeout_seconds
+        Value: '20'
+      Targets:
+      - Id:
+          Ref: targetGroupMember0
+        Port: 80
+      - Id:
+          Ref: targetGroupMember1
+        Port: 80
+      UnhealthyThresholdCount: 3
+      VpcId:
+        Ref: 'VPC'
+      Tags:
+      - Key: Name
+        Value: EC2TargetGroup
+      - Key: Port
+        Value: 80
