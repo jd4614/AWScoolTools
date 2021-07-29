@@ -1,0 +1,4 @@
+curl --output /var/www/html/awsLogo1.png https://d0.awsstatic.com/logos/powered-by-aws.png
+curl --output /var/www/html/awsTandCLogo1.png https://d1.awsstatic.com/training-and-certification/TC_logo_RGB_REV.3e0c1d22075444c502f7f926d0d07d1efbc751a3.png
+curl --output /var/www/html/vintageCloudPainting.jpg https://www.publicdomainpictures.net/pictures/270000/velka/clouds-vintage-painting-1532929117AFf.jpg
+curl --output /var/www/html/goatPicture.jpg https://cdn.stocksnap.io/img-thumbs/960w/animal-goat_0QJJYBAVZ1.jpg
