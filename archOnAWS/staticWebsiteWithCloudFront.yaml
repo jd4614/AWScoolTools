@@ -1,0 +1,344 @@
+AWSTemplateFormatVersion: 2010-09-09
+Resources:
+  VPC:
+    Type: 'AWS::EC2::VPC'
+    Properties:
+      CidrBlock: 10.1.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-VPC'
+  IGW:
+    Type: 'AWS::EC2::InternetGateway'
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-IGW'
+  attachGateway:
+    Type: 'AWS::EC2::VPCGatewayAttachment'
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref IGW
+  publicSubnetA:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      AvailabilityZone: !Select 
+        - 0
+        - !GetAZs ''
+      VpcId: !Ref VPC
+      CidrBlock: 10.1.1.0/24
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-Public-A'
+  publicRouteTable:
+    Type: 'AWS::EC2::RouteTable'
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-PubRouteTable'
+  routeTableAssocPubA:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    Properties:
+      SubnetId: !Ref publicSubnetA
+      RouteTableId: !Ref publicRouteTable
+  publicRoute1:
+    Type: 'AWS::EC2::Route'
+    Properties:
+      RouteTableId: !Ref publicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref IGW
+  EIPa:
+    DependsOn: attachGateway
+    Type: 'AWS::EC2::EIP'
+    Properties:
+      Domain: !Ref VPC
+  instanceSecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: Allow http to client host
+      GroupName: httpAllowInOut
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+  RootInstanceProfile:
+    Type: 'AWS::IAM::InstanceProfile'
+    Properties:
+      Path: /
+      Roles:
+        - !Ref S3WritableRole
+  S3WritableRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: 'sts:AssumeRole'
+      Path: /
+  RolePolicies:
+    Type: 'AWS::IAM::Policy'
+    DependsOn:
+      - targetGroupMember0
+    Properties:
+      PolicyName: targetGroupMember0InstancePolicy
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action: 's3:*'
+            Resource: '*'
+      Roles:
+        - !Ref S3WritableRole
+  
+  s3Bucket:
+    Type: 'AWS::S3::Bucket'
+    Properties:
+      AccessControl: Private
+      BucketName: !Sub '${AWS::AccountId}-bucket0987'
+      WebsiteConfiguration:
+        IndexDocument: index.html
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::AccountId}-bucket0987'
+
+  targetGroupMember0:
+    Type: 'AWS::EC2::Instance'
+    Properties:
+      AvailabilityZone: !Select 
+        - 0
+        - !GetAZs ''
+      KeyName: classDemos
+      IamInstanceProfile: !Ref RootInstanceProfile
+      ImageId: >-
+        resolve:ssm:/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2
+      InstanceType: t2.micro
+      SecurityGroupIds:
+        - !GetAtt instanceSecurityGroup.GroupId
+      SubnetId: !Ref publicSubnetA
+      UserData:
+        'Fn::Base64': !Sub >
+          #!/bin/bash -xe
+
+          exec > >(tee /var/log/user-data.log|logger -t user-data -s
+          2>/dev/console) 2>&1
+
+          yum update -y
+
+          amazon-linux-extras install -y lamp-mariadb10.2-php7.2 php7.2
+
+          yum install -y httpd mariadb-server
+
+          cat <<EOF > /var/www/html/index.html
+
+          <html>
+
+          <body>
+
+          <p>Hostname is:           $(curl
+          169.254.169.254/latest/meta-data/public-hostname)</p>
+
+          <p>IP Address is:         $(curl
+          169.254.169.254/latest/meta-data/public-ipv4)</p>
+
+          <p>Availability Zone is:  $(curl
+          169.254.169.254/latest/meta-data/placement/availability-zone)</p>
+
+          </body>
+
+          </html>
+
+          EOF
+
+          systemctl start httpd
+
+          systemctl enable httpd
+
+          usermod -a -G apache ec2-user
+
+          chown -R ec2-user:apache /var/www
+
+          chmod 2775 /var/www
+
+          find /var/www -type d -exec chmod 2775 {} \;
+
+          find /var/www -type f -exec chmod 0664 {} \;
+
+          echo "<?php phpinfo(); ?>" > /var/www/html/phpinfo.php 
+
+          curl --output /var/www/html/awsLogo1.png
+          https://d0.awsstatic.com/logos/powered-by-aws.png
+
+          curl --output /var/www/html/awsTandCLogo1.png
+          https://d1.awsstatic.com/training-and-certification/TC_logo_RGB_REV.3e0c1d22075444c502f7f926d0d07d1efbc751a3.png
+
+          curl --output /var/www/html/vintageCloudPainting.jpg
+          https://www.publicdomainpictures.net/pictures/270000/velka/clouds-vintage-painting-1532929117AFf.jpg
+
+          curl --output /var/www/html/goatPicture.jpg
+          https://cdn.stocksnap.io/img-thumbs/960w/animal-goat_0QJJYBAVZ1.jpg
+
+          aws s3 cp /var/www/html/ s3://${s3Bucket}/ --recursive --exclude "*"
+          --include "*.png" --include "*.jpg" "*.html"
+
+          yum install -y php     
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-targetGroupMember0'
+  TSIemptyBucketOnDeleteFunctionRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      RoleName:
+        'Fn::Sub': TSIemptyBucketOnDeleteFunctionRole
+      AssumeRolePolicyDocument:
+        Statement:
+          - Action:
+              - 'sts:AssumeRole'
+            Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+        Version: 2012-10-17
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/AWSLambdaExecute'
+        - 'arn:aws:iam::aws:policy/AmazonS3FullAccess'
+        - 'arn:aws:iam::aws:policy/AmazonDynamoDBFullAccess'
+        - 'arn:aws:iam::aws:policy/AmazonKinesisFullAccess'
+      Path: /
+  lambdaFunction:
+    Type: 'AWS::Lambda::Function'
+    Properties:
+      Code:
+        ZipFile: !Sub |
+          import json, boto3, logging
+          import cfnresponse
+          logger = logging.getLogger()
+          logger.setLevel(logging.INFO)
+
+          def lambda_handler(event, context):
+              logger.info("event: {}".format(event))
+              try:
+                  bucket = event['ResourceProperties']['BucketName']
+                  logger.info("bucket: {}, event['RequestType']: {}".format(bucket,event['RequestType']))
+                  if event['RequestType'] == 'Delete':
+                      s3 = boto3.resource('s3')
+                      bucket = s3.Bucket(bucket)
+                      for obj in bucket.objects.filter():
+                          logger.info("delete obj: {}".format(obj))
+                          s3.Object(bucket.name, obj.key).delete()
+
+                  sendResponseCfn(event, context, cfnresponse.SUCCESS)
+              except Exception as e:
+                  logger.info("Exception: {}".format(e))
+                  sendResponseCfn(event, context, cfnresponse.FAILED)
+
+          def sendResponseCfn(event, context, responseStatus):
+              responseData = {}
+              responseData['Data'] = {}
+              cfnresponse.send(event, context, responseStatus, responseData, "CustomResourcePhysicalID")            
+      Handler: index.lambda_handler
+      Runtime: python3.7
+      MemorySize: 128
+      Timeout: 60
+      Role: !GetAtt TSIemptyBucketOnDeleteFunctionRole.Arn
+  
+  cleanupBucketOnDelete:
+    Type: 'Custom::cleanupbucket'
+    Properties:
+      ServiceToken: !GetAtt lambdaFunction.Arn
+      BucketName: !Ref s3Bucket
+
+  CloudFrontOriginIdentity:
+    Type: AWS::CloudFront::CloudFrontOriginAccessIdentity
+    Properties:
+      CloudFrontOriginAccessIdentityConfig:
+        Comment: 'origin identity'
+
+  BucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref s3Bucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Sub 'arn:aws:iam::cloudfront:user/CloudFront Origin Access Identity ${CloudFrontOriginIdentity}'
+            Action: 's3:GetObject'
+            Resource: 
+              Fn::Join:
+                - ''
+                - - 'arn:aws:s3:::'
+                  - Ref: s3Bucket
+                  - '/*'
+
+
+  publicDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Origins:
+          - DomainName: !GetAtt s3Bucket.WebsiteURL
+            Id: s3Bucket
+            S3OriginConfig:
+              OriginAccessIdentity: !Sub 'origin-access-identity/cloudfront/${CloudFrontOriginIdentity}'
+        Enabled: 'true'
+        Comment: Some comment
+        DefaultCacheBehavior:
+          AllowedMethods:
+            - GET
+            - HEAD
+          TargetOriginId: s3Bucket
+          ForwardedValues:
+            QueryString: 'false'
+            Cookies:
+              Forward: none
+          ViewerProtocolPolicy: redirect-to-https
+        ViewerCertificate:
+          CloudFrontDefaultCertificate: 'true'
+
+Outputs:
+  WebsiteURL:
+    Value: !GetAtt s3Bucket.WebsiteURL
+    Description: URL for website hosted on S3
+  
+  S3BucketSecureURL:
+    Value: !Join 
+      - ''
+      - - 'https://'
+        - !GetAtt s3Bucket.DomainName
+    Description: Name of S3 bucket holding website content
+  
+  CloudFrontEndpoint:
+    Description: Endpoint for Cloudfront Distribution
+    Value: !Ref publicDistribution
+    Export:
+      Name: stackCDN
