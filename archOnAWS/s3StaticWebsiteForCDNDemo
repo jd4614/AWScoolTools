@@ -187,3 +187,69 @@ Resources:
       Tags:
         - Key: Name
           Value: !Sub '${AWS::StackName}-targetGroupMember0'
+
+  TSIemptyBucketOnDeleteFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName:
+        Fn::Sub: TSIemptyBucketOnDeleteFunctionRole
+      AssumeRolePolicyDocument:
+        Statement:
+          - Action:
+            - sts:AssumeRole
+            Effect: Allow
+            Principal:
+              Service:
+              - lambda.amazonaws.com
+        Version: 2012-10-17
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AWSLambdaExecute
+        - arn:aws:iam::aws:policy/AmazonS3FullAccess
+        - arn:aws:iam::aws:policy/AmazonDynamoDBFullAccess
+        - arn:aws:iam::aws:policy/AmazonKinesisFullAccess
+      Path: /
+
+  lambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Code: 
+        ZipFile: 
+          !Sub |
+            import json, boto3, logging
+            import cfnresponse
+            logger = logging.getLogger()
+            logger.setLevel(logging.INFO)
+
+            def lambda_handler(event, context):
+                logger.info("event: {}".format(event))
+                try:
+                    bucket = event['ResourceProperties']['BucketName']
+                    logger.info("bucket: {}, event['RequestType']: {}".format(bucket,event['RequestType']))
+                    if event['RequestType'] == 'Delete':
+                        s3 = boto3.resource('s3')
+                        bucket = s3.Bucket(bucket)
+                        for obj in bucket.objects.filter():
+                            logger.info("delete obj: {}".format(obj))
+                            s3.Object(bucket.name, obj.key).delete()
+
+                    sendResponseCfn(event, context, cfnresponse.SUCCESS)
+                except Exception as e:
+                    logger.info("Exception: {}".format(e))
+                    sendResponseCfn(event, context, cfnresponse.FAILED)
+
+            def sendResponseCfn(event, context, responseStatus):
+                responseData = {}
+                responseData['Data'] = {}
+                cfnresponse.send(event, context, responseStatus, responseData, "CustomResourcePhysicalID")            
+
+      Handler: "index.lambda_handler"
+      Runtime: python3.7
+      MemorySize: 128
+      Timeout: 60
+      Role: !GetAtt TSIemptyBucketOnDeleteFunctionRole.Arn   
+      
+  cleanupBucketOnDelete:
+    Type: Custom::cleanupbucket
+    Properties:
+      ServiceToken: !GetAtt lambdaFunction.Arn
+      BucketName: !Ref s3Bucket
