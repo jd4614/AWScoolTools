@@ -122,14 +122,7 @@ Resources:
   s3Bucket:
     Type: 'AWS::S3::Bucket'
     Properties:
-      AccessControl: Private
-      BucketName: !Sub '${AWS::AccountId}-bucket0987'
-      WebsiteConfiguration:
-        IndexDocument: index.html
-      Tags:
-        - Key: Name
-          Value: !Sub '${AWS::AccountId}-bucket0987'
-
+      BucketName: "desmonddemo98765"
   targetGroupMember0:
     Type: 'AWS::EC2::Instance'
     Properties:
@@ -207,7 +200,7 @@ Resources:
           https://cdn.stocksnap.io/img-thumbs/960w/animal-goat_0QJJYBAVZ1.jpg
 
           aws s3 cp /var/www/html/ s3://${s3Bucket}/ --recursive --exclude "*"
-          --include "*.png" --include "*.jpg" "*.html"
+          --include "*.png" --include "*.jpg" --include "*.html"
 
           yum install -y php     
       Tags:
@@ -285,45 +278,35 @@ Resources:
   BucketPolicy:
     Type: AWS::S3::BucketPolicy
     Properties:
-      Bucket: !Ref s3Bucket
+      Bucket:
+        Ref: s3Bucket
       PolicyDocument:
         Version: '2012-10-17'
         Statement:
           - Effect: Allow
             Principal:
-              AWS: !Sub 'arn:aws:iam::cloudfront:user/CloudFront Origin Access Identity ${CloudFrontOriginIdentity}'
-            Action: 's3:GetObject'
-            Resource: 
-              Fn::Join:
-                - ''
-                - - 'arn:aws:s3:::'
-                  - Ref: s3Bucket
-                  - '/*'
-
+              CanonicalUser:
+                Fn::GetAtt: [ CloudFrontOriginIdentity , S3CanonicalUserId ]
+            Action: "s3:GetObject"
+            Resource: !Sub "${s3Bucket.Arn}/*"
 
   publicDistribution:
     Type: AWS::CloudFront::Distribution
+    DependsOn: s3Bucket
     Properties:
       DistributionConfig:
         Origins:
-          - DomainName: !GetAtt s3Bucket.WebsiteURL
-            Id: s3Bucket
+          - DomainName: 'desmonddemo98765.s3.amazonaws.com'
+            Id: 'WebApp'
             S3OriginConfig:
-              OriginAccessIdentity: !Sub 'origin-access-identity/cloudfront/${CloudFrontOriginIdentity}'
-        Enabled: 'true'
-        Comment: Some comment
+              OriginAccessIdentity: !Sub "origin-access-identity/cloudfront/${CloudFrontOriginIdentity}"
+        Enabled: True
+        DefaultRootObject: index.html
         DefaultCacheBehavior:
-          AllowedMethods:
-            - GET
-            - HEAD
-          TargetOriginId: s3Bucket
           ForwardedValues:
-            QueryString: 'false'
-            Cookies:
-              Forward: none
-          ViewerProtocolPolicy: redirect-to-https
-        ViewerCertificate:
-          CloudFrontDefaultCertificate: 'true'
+            QueryString: False
+          TargetOriginId: 'WebApp'
+          ViewerProtocolPolicy: allow-all
 
 Outputs:
   WebsiteURL:

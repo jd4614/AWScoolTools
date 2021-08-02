@@ -1,0 +1,86 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: AWS CloudFormation Template S3_With_CloudFront_Distribution
+Parameters:
+  bucketname:
+    Type: String
+    Description: test
+  cannonicalid:
+    Type: String
+    Description: '234213523145314534523452345234523452345'
+Conditions:
+  CreateProdResources: !Equals 
+    - !Ref EnvType
+    - dev
+Resources:
+  testbucket:
+    Type: 'AWS::S3::Bucket'
+    Properties:
+      BucketName: !Ref bucketname
+      WebsiteConfiguration:
+        IndexDocument: index.html
+  mybucketpolicy:
+    Type: 'AWS::S3::BucketPolicy'
+    Properties:
+      PolicyDocument:
+        Id: MyPolicy
+        Statement:
+          - Sid: >-
+              Grant a CloudFront Origin Identity access to support private
+              content
+            Action:
+              - 's3:GetObject'
+            Effect: Allow
+            Resource: !Join 
+              - ''
+              - - 'arn:aws:s3:::'
+                - !Ref testbucket
+                - /*
+            Principal:
+              CanonicalUser: !Ref cannonicalid
+      Bucket: !Ref testbucket
+  testdistribution:
+    Type: 'AWS::CloudFront::Distribution'
+    Properties:
+      DistributionConfig:
+        Origins:
+          - Id: S3Origin
+            DomainName: !GetAtt 
+              - testbucket
+              - DomainName
+            S3OriginConfig:
+              OriginAccessIdentity: How to configure the id dynamically here
+        Enabled: 'true'
+        Comment: ''
+        DefaultRootObject: index.html
+        Aliases:
+          - test.com
+        CacheBehaviors:
+          - TargetOriginId: S3Origin
+            ForwardedValues:
+              QueryString: 'false'
+            ViewerProtocolPolicy: allow-all
+            MinTTL: '1'
+            PathPattern: resources/*.json
+        DefaultCacheBehavior:
+          TargetOriginId: S3Origin
+          ForwardedValues:
+            QueryString: 'false'
+          ViewerProtocolPolicy: allow-all
+          MinTTL: '1'
+Outputs:
+  DistributionId:
+    Description: CloudFront Distribution Id
+    Value: !Ref testdistribution
+  DistributionName:
+    Description: URL to access the CloudFront distribution
+    Value: !Join 
+      - ''
+      - - 'http://'
+        - !GetAtt 
+          - testdistribution
+          - DomainName
+  S3OriginDNSName:
+    Description: Name of S3 bucket to hold website content.
+    Value: !GetAtt 
+      - testbucket
+      - DomainName
